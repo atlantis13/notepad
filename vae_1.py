@@ -17,7 +17,7 @@ plt.rcParams['axes.labelsize'] = 14
 plt.rcParams['xtick.labelsize'] = 12
 plt.rcParams['ytick.labelsize'] = 12
 
-SHAPE_INPUT = 1200
+SHAPE_INPUT = 4800
 PATH_BASE = r"F:\sinwooyoo\python\hist"
 PATH_SESS = os.path.join(
     PATH_BASE, str(date.today()),
@@ -57,7 +57,7 @@ def load_wav(lst_file, block_size=2400, sr=48000, duration=10):
     idx = 0
     _duration = 0
     _wfs = 0
-    _offset = .5
+    _offset = .0
     _duration = round(duration/n_files, 1)
     
     while(_wfs < duration):
@@ -69,62 +69,50 @@ def load_wav(lst_file, block_size=2400, sr=48000, duration=10):
             break
 
         try:
-            wf, _ = librosa.load(
+            _wf, _ = librosa.load(
                 lst_file[idx][0],
                 sr=sr,
                 mono=False,
                 offset=_offset,
                 duration=_duration,
                 res_type='kaiser_best')
-            
-            print("\tloaded:{0}, {1:3.3f}s ~ {2:3.3f}s".format(
-            os.path.basename(lst_file[idx][0]), _offset, _offset+(wf.shape[1]/sr)))
+            print(f"\tloaded:{0}, {_offset:3.3f}s ~ {_offset+(len(_wf)/sr):3.3f}s".format(
+                os.path.basename(lst_file[idx][0])))
 
             # If it's stereo signal
-            if(np.array(wf.shape)[0] == 2):
-                wf = (wf[0, :] + wf[1, :]) / 2
-                wf = (wf - wf.min()) / (wf.max() - wf.min()) + 1e-16
-                pass
+            if(np.array(_wf.shape)[0] == 2):
+                _wf = (_wf[0, :] + _wf[1, :]) / 2
+                _wf = (_wf - _wf.min()) / (_wf.max() - _wf.min()) + 1e-16
             else:
-                wf = (wf - wf.min()) / (wf.max() - wf.min()) + 1e-16
-                pass
+                _wf = (_wf - _wf.min()) / (_wf.max() - _wf.min()) + 1e-16
 
-            # sd.play(wf, sr)
+            # sd.play(_wf, sr)
 
-            _len_read = round(wf.shape[0]/sr, 1)
+            _len_read = round(_wf.shape[0]/sr, 1)
             if(_len_read < int(_duration)):
                 lst_file.pop(idx)
-                pass
             else:
                 idx += 1
-                pass
-            pass
+            n_blocks = _wf.shape[0]//block_size
+            _wf = _wf[:n_blocks*block_size]
 
-            n_blocks = wf.shape[0]//block_size
-            wf = wf[:n_blocks*block_size]
-
-            wf = wf.reshape(wf.shape[0]//block_size, block_size)
-            wfs = np.vstack((wfs, wf))
+            _wf = _wf.reshape(_wf.shape[0]//block_size, block_size)
+            wfs = np.vstack((wfs, _wf))
             _wfs += _len_read
 
-        except Exception as e:
-            print("\t", e, ": file, {}".format(lst_file[idx]))
+        except Exception as _e:
+            print("\t", _e, f": file, {lst_file[idx]}")
             lst_file.pop(idx)
-            # lst_file.remove(lst_file[j])
-            pass
-
-        pass
     _n_frame = int(sr/block_size*duration)
     if wfs.shape[0] > _n_frame:
         wfs = wfs[1:_n_frame+1, :]
-        pass
     else:
         pass
 
-    print("read in this class: %2.1f seconds" % (wfs.shape[0]*wfs.shape[1]/sr))
+    print(f"read in this class: {(wfs.shape[0]*wfs.shape[1]/sr):2.1f} seconds")
 
     end_time = time.time()
-    print("took {0:.1f} seconds...\n".format(end_time-start_time))
+    print(f"took {end_time-start_time:.1f} seconds...\n")
 
     # return wfs_class, {"class_type":class_type, "len_total":len_total, "n_files":n_files, "power_wfs":np.power(wfs_in_dir, 2).mean()}
     return wfs
@@ -135,7 +123,6 @@ def load_wav(lst_file, block_size=2400, sr=48000, duration=10):
 def build_data(path=None, block_size=2400, split=.9):
     if path==None:
         path_source = r"F:\sinwooyoo\data\input\waves\drone_wav_1\01-bebop2"
-        pass
     else:
         pass
 
@@ -144,29 +131,24 @@ def build_data(path=None, block_size=2400, split=.9):
     lst_class = [s for s in os.listdir(path_source) if os.path.isdir(os.path.join(path_source,s))]
     if len(lst_class)==0:
         lst_class = [path_source]
-        pass
-
     features = np.empty((0, int(block_size)))
     labels = np.empty((0,1))
     labels_one_hot = np.empty((0, len(lst_class)))
 
     for id_name in tqdm(lst_class, desc="Loading wav files..."):
         paths_wav = glob.glob(os.path.join(path_source, id_name) + r'\*.wav')
-        feature = np.vstack(load_wav(paths_wav, duration=10/len(lst_class)))
+        feature = np.vstack(load_wav(paths_wav, block_size=SHAPE_INPUT, duration=10/len(lst_class)))
         label = np.repeat(lst_class.index(id_name), repeats=len(feature)).reshape(len(feature), 1)
         # label_one_hot = one_hot(label, feature.shape[0], len(lst_class))
 
         features = np.vstack((feature, features))
         labels = np.vstack((label, labels))
         # labels_one_hot = np.row_stack((label_one_hot, labels_one_hot))
-        pass
     np.random.shuffle(features)
     n_samples = features.shape[0]
     idx = int(n_samples*split)
 
     return feature[:idx], feature[idx:], labels[:idx], labels[idx:]
-
-    pass
 
 X_train, X_test, _, _ = build_data(block_size=SHAPE_INPUT)
 
@@ -175,7 +157,9 @@ X_train, X_test, _, _ = build_data(block_size=SHAPE_INPUT)
 
 
 # %%
+import soundfile as sf
 import tensorflow as tf
+import tensorflow_addons as tfa
 from tensorflow.keras import backend as k
 from tensorflow.keras import Input, Model
 from tensorflow.keras.utils import plot_model
@@ -192,14 +176,15 @@ from tensorflow.keras.layers import (
     Lambda,
     Add
 )
+
 tf.random.set_seed(777)
 
-import soundfile as sf
 
 lst_latent = [2, 8, 32]
-lst_filter_enc = [100, 100, 100, 100, 100, 100, 100]
-lst_kernel_enc = [1201, 1201, 1201, 601, 601, 301, 51]
-lst_stride = [1, 1, 1, 3, 1, 2, 2]
+lst_filter_enc = [300, 300, 300, 300, 600, 1]
+lst_kernel_enc = [2, 3, 5, 9, 17, 33]
+lst_stride = [1, 1, 1, 1, 1, 1]
+lst_dilations = [1, 2, 4, 8, 16, 32]
 
 lst_filter_dec = lst_filter_enc[::-1]
 lst_kernel_dec = [s+v-1 for s, v in zip(lst_kernel_enc[::-1], lst_stride[::-1])]
@@ -208,35 +193,36 @@ lst_stride_rev = lst_stride[::-1]
 
 inputs = Input(shape=(SHAPE_INPUT, 1), name='input')
 
-def _encoder(x):
-    _x = x
-    for i in range(len(lst_filter_enc)):
-        _x = tf.keras.layers.Conv1D(
+def _encoder(_x):
+    for i, _ in enumerate(lst_filter_enc):
+        _x = Conv1D(
             lst_filter_enc[i],
-            lst_kernel_enc[i], strides=lst_stride[i],
-            activation='tanh')(_x)
-        _x = tf.keras.layers.BatchNormalization()(_x)
-        pass
+            lst_kernel_enc[i],
+            strides=lst_stride[i],
+            dilation_rate=lst_dilations[i],
+            padding='valid',
+            activation='LeakyReLU')(_x)
+        _x = Dropout(rate=.2)(_x)
     return _x
 
 
-def _decoder(x):
-    _x = x
-    for i in range(len(lst_filter_dec)):
+def _decoder(_x):
+    for i, _ in enumerate(lst_filter_dec):
         _x = tf.keras.layers.Conv1DTranspose(
             lst_filter_dec[i],
-            lst_kernel_dec[i], strides=lst_stride_rev[i],
+            lst_kernel_dec[i],
+            strides=lst_stride_rev[i],
+            dilation_rate=lst_dilations[i],
+            padding='valid',
             activation='tanh')(_x)
-        _x = tf.keras.layers.BatchNormalization()(_x)
-        pass
     return _x
 
-encoder1 = _encoder(x=inputs)
-encoder2 = _encoder(x=inputs)
-encoder3 = _encoder(x=inputs)
-decoder1 = _decoder(x=encoder1)
-decoder2 = _decoder(x=encoder2)
-decoder3 = _decoder(x=encoder3)
+encoder1 = _encoder(inputs)
+encoder2 = _encoder(inputs)
+encoder3 = _encoder(inputs)
+decoder1 = _decoder(encoder1)
+decoder2 = _decoder(encoder2)
+decoder3 = _decoder(encoder3)
 
 merged = Add()([decoder1, decoder2, decoder3])
 outputs = Dense(1)(merged)
@@ -288,8 +274,6 @@ class CustomEarlyStopping(tf.keras.callbacks.EarlyStopping):
         if current_val is None:
             warnings.warn('Early stopping requires %s available!' %
                           (self.monitor), RuntimeWarning)
-            pass
-
         # If ratio current_loss / current_val_loss > self.ratio
         if self.monitor_op(np.divide(current_train,current_val),self.ratio):
             if(current_val>.0):
@@ -329,12 +313,11 @@ class PerformancePlotCallback(tf.keras.callbacks.Callback):
         sf.write(os.path.join(PATH_FIGS,str(epoch)+"y.wav"), x_gen, 48000)
 
         fig = plt.figure(figsize=(20,5))
-        ax0 = fig.add_subplot(311)
-        ax0.plot(x[5000:10000])
-        ax1 = fig.add_subplot(312)
-        ax1.plot(x_gen[5000:10000])
-        ax2 = fig.add_subplot(313)
-        ax2.plot(delta)
+        ax0 = fig.add_subplot(211)
+        ax0.plot(x)
+        ax0.plot(x_gen)
+        ax1 = fig.add_subplot(212)
+        ax1.plot(delta)
 
         plt.tight_layout()
         fig.figure.savefig(os.path.join(PATH_FIGS,str(epoch))+".png", format='png', dpi=600)
@@ -347,9 +330,9 @@ plt_callback = PerformancePlotCallback(X_test, "generated_signal")
 
 model.fit(
     X_train, X_train, 
-    batch_size=100,
-    epochs=150,
-    validation_split=.3,
+    batch_size=50,
+    epochs=300,
+    validation_split=.5,
     shuffle=True,
     verbose=1,
     callbacks=[tb_callback, plt_callback])
