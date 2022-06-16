@@ -8,7 +8,7 @@ import glob
 import os
 import io
 import pickle
-from tkinter import Y
+# from tkinter import Y
 from PIL import Image
 
 # from tensorflow import keras
@@ -187,12 +187,10 @@ def build_data(path=None, block_size=2400, split=.8, dim=1):
         return features[:idx], features[idx:], labels[:idx], labels[idx:]
     except Exception as _e:
         print("issue from reading existed file:{_e}, building new one...")
-        
         if path is None:
             path_source = r"F:\sinwooyoo\data\input\waves\drone_wav_1"
         else:
             pass
-
 
         print("Reading data list...")
         lst_class = [s for s in os.listdir(path_source) \
@@ -366,7 +364,7 @@ class CustomCallback(tf.keras.callbacks.Callback):
         _x = np.linspace(0,BLOCK_SIZE/SAMPLE_RATE, SAMPLE_RATE)
         _ax = fig.add_axes([.1, .15, .8, .8])
         _ax.grid(True, linestyle='-.', linewidth=1)
-        _ax.set(xlabel='Time (ms)', ylabel='Energy (normalized)', title=title)
+        _ax.set(xlabel='Time (s)', ylabel='Energy (normalized)', title=title)
         _ax.plot(_x, _y.reshape(SAMPLE_RATE,-1), linewidth=1)
         # _ax.tick_params(axis='x', direction='in', length=3, pad=2, labelsize=14, top=True)
         # _ax.tick_params(axis='y', direction='inout', length=10, pad=2, labelsize=12, width=2)
@@ -392,16 +390,15 @@ class CustomCallback(tf.keras.callbacks.Callback):
             print("No data")
             return
 
-        image = Image.fromarray((_y*255).astype(np.uint8))
+        image = Image.fromarray((_y.reshape((240, 200))*255).astype(np.uint8))
 
         output = io.BytesIO()
         image.save(output, format='png')
         output.close()
 
         with tf.summary.create_file_writer(PATH_LOGS).as_default():
-            tf.summary.image(title, _y.reshape((-1,240,200,1)), step=self.params.get('steps'))
-    
-    
+            tf.summary.image(title, _y.reshape((-1, 240, 200, 1)), step=self.params.get('steps'))
+
     def on_epoch_end(self, epoch, logs=None):
         current_val = logs.get('val_loss')
         current_train = logs.get('loss')
@@ -414,7 +411,8 @@ class CustomCallback(tf.keras.callbacks.Callback):
             if self.wait >= self.patience:
                 self.stopped_epoch = epoch
                 self.model.stop_training = True
-            self.wait += 1
+            elif current_val > current_train:
+                self.wait += 1
         idx = np.random.randint(self.x_test.shape[0])
         _x = self.x_test[idx]
         if DIM==1:
@@ -422,28 +420,28 @@ class CustomCallback(tf.keras.callbacks.Callback):
             _x_gen = np.squeeze(_x_gen)
             _x_gen /= np.max(_x_gen)
             _delta = _x - _x_gen
-            
             sf.write(os.path.join(PATH_LOGS,str(epoch)+"_x.wav"), _x, 48000)
             sf.write(os.path.join(PATH_LOGS,str(epoch)+"_y.wav"), _x_gen, 48000)
-            
+
             self.make_plot(_y=_x, title=str(epoch)+"#x_test")
             self.make_plot(_y=_x_gen, title=str(epoch)+"#predicted")
             self.make_plot(_y=_delta, title=str(epoch)+"#x_test")
 
         elif DIM==2:
             _x_gen = self.model.predict(_x.reshape((-1, 240, 200, 1)))
-            _x_gen = _x_gen.reshape(240, 200)
-            _delta = _x - _x_gen
+            _delta = _x - _x_gen.reshape(240, 200)
             # _x_gen = np.squeeze(_x_gen)
             # _x_gen /= np.max(_x_gen)
-            sf.write(os.path.join(PATH_LOGS,str(epoch)+"_x.wav"), _x.reshape((SAMPLE_RATE, -1)), 48000)
-            sf.write(os.path.join(PATH_LOGS,str(epoch)+"_y.wav"), _x_gen.reshape((SAMPLE_RATE, -1)), 48000)
-            sf.write(os.path.join(PATH_LOGS,str(epoch)+"_d.wav"), _delta.reshape((SAMPLE_RATE, -1)), 48000)
+            sf.write(os.path.join(PATH_LOGS,str(epoch)+"_x.wav"), \
+                _x.reshape((SAMPLE_RATE, -1)), 48000)
+            sf.write(os.path.join(PATH_LOGS,str(epoch)+"_y.wav"), \
+                _x_gen.reshape((SAMPLE_RATE, -1)), 48000)
+            sf.write(os.path.join(PATH_LOGS,str(epoch)+"_d.wav"), \
+                _delta.reshape((SAMPLE_RATE, -1)), 48000)
 
             self.make_image(_y=_x, title=str(epoch)+"#x_test(240x200)")
             self.make_image(_y=_x_gen, title=str(epoch)+"#predicted(240x200)")
             self.make_image(_y=_delta, title=str(epoch)+"#delta(240x200)")
-            
             self.make_plot(_y=_x, title=str(epoch)+"#x_test")
             self.make_plot(_y=_x_gen, title=str(epoch)+"#predicted")
             self.make_plot(_y=_delta, title=str(epoch)+"#x_test")
@@ -466,8 +464,8 @@ tb_callback = tf.keras.callbacks.TensorBoard(
     embeddings_metadata=None)
 reduceLR = tf.keras.callbacks.ReduceLROnPlateau(
     monitor='val_loss',
-    factor=.8,
-    patience=4)
+    factor=.7,
+    patience=7)
 cs_callback = CustomCallback(ratio=.9, patience=10, verbose=2, x_test=X_test)
 
 
@@ -478,7 +476,7 @@ model.fit(
     validation_split=.4,
     shuffle=True,
     verbose=2,
-    use_multiprocessing=True,
+    use_multiprocessing=False,
     callbacks=[tb_callback, cs_callback, reduceLR])
 
 
