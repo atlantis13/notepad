@@ -163,7 +163,7 @@ def save_load(val=None, opt="load"):
         return None
 
 
-def build_data(path=None, block_size=2400, split=.8, dim=1):
+def build_data(path=None, block_size=2400, split=.7, dim=1):
 
     sample_rate = SAMPLE_RATE
 
@@ -173,18 +173,6 @@ def build_data(path=None, block_size=2400, split=.8, dim=1):
         with open(PATH_PKL+r"\labels.pkl", 'rb') as f:
             labels = pickle.load(f)
 
-        np.random.shuffle(features)
-        n_samples = features.shape[0]
-        idx = int(n_samples*split)
-        if dim==1:
-            print(f"total: {features.shape[0]*features.shape[1]/sample_rate} seconds")
-            print(f"{n_samples} sample records, splitted: train-1~{idx}, test-{idx}~{n_samples}")
-        elif dim==2:
-            print(f"total: {features.shape[0]}x{features.shape[1]}x{features.shape[2]}, \
-                {features.shape[0]*features.shape[1]*features.shape[2]/sample_rate} seconds.")
-            print(f"{n_samples} sample records, splitted: train-1~{idx}, test-{idx}~{n_samples}")
-
-        return features[:idx], features[idx:], labels[:idx], labels[idx:]
     except Exception as _e:
         print("issue from reading existed file:{_e}, building new one...")
         if path is None:
@@ -210,43 +198,42 @@ def build_data(path=None, block_size=2400, split=.8, dim=1):
                 pass
             else:
                 if dim==1:
-                    feature = np.vstack(load_wav(paths_wav, block_size=BLOCK_SIZE, duration=60))
-                    label = np.repeat(lst_class.index(id_name), \
-                        repeats=len(feature)).reshape(len(feature), 1)
-                    # label_one_hot = one_hot(label, feature.shape[0], len(lst_class))
+                    feature = load_wav(paths_wav, block_size=BLOCK_SIZE, duration=60)
 
-                    features = np.vstack((feature, features))
-                    labels = np.vstack((label, labels))
-                    # labels_one_hot = np.row_stack((label_one_hot, labels_one_hot))
                 elif dim==2:
                     feature = load_wav(paths_wav, block_size=BLOCK_SIZE, duration=60)\
                         .reshape((-1, 240, 200))
-                    label = np.repeat(lst_class.index(id_name), repeats=len(feature))\
-                        .reshape(len(feature), 1)
 
-                    features = np.vstack((feature, features))
-                    labels = np.vstack((label, labels))
+                # label = np.repeat(lst_class.index(id_name), \
+                #     repeats=len(feature)).reshape(len(feature), 1)
+                label = np.repeat(id_name, repeats=len(feature)).reshape(len(feature), 1)
+                features = np.vstack((feature, features))
+                labels = np.vstack((label, labels))
 
         with open(PATH_PKL+r"\features.pkl", 'wb') as f:
             pickle.dump(features, f, pickle.HIGHEST_PROTOCOL)
         with open(PATH_PKL+r"\labels.pkl", 'wb') as f:
             pickle.dump(labels, f, pickle.HIGHEST_PROTOCOL)
 
+    finally:
         ## need to fix for labels permutation
-        np.random.shuffle(features)
+        shuffler = np.random.permutation(len(features))
+        features = features[shuffler]
+        labels = labels[shuffler]
         n_samples = features.shape[0]
         idx = int(n_samples*split)
+
         if dim==1:
             print(f"total: {features.shape[0]*features.shape[1]/sample_rate} seconds")
             print(f"{n_samples} sample records, splitted: train-1~{idx}, test-{idx}~{n_samples}")
         elif dim==2:
             print(f"total: {features.shape[0]}x{features.shape[1]}x{features.shape[2]}, \
-                {features.shape[0]*feature.shape[1]*feature.shape[2]/sample_rate} seconds.")
+                {features.shape[0]*features.shape[1]*features.shape[2]/sample_rate} seconds.")
             print(f"{n_samples} sample records, splitted: train-1~{idx}, test-{idx}~{n_samples}")
 
-        return features[:idx], features[idx:], labels[:idx], labels[idx:]
+    return features[:idx], features[idx:], labels[:idx], labels[idx:]
 
-X_train, X_test, _, _ = build_data(block_size=BLOCK_SIZE, dim=2)
+X_train, X_test, y_train, y_test = build_data(block_size=BLOCK_SIZE, dim=2)
 
 
 # %%
@@ -343,8 +330,9 @@ class CustomCallback(tf.keras.callbacks.Callback):
 
     writer = tf.summary.create_file_writer(PATH_FIGS)
 
-    def __init__(self, ratio=0.0, patience=5, verbose=2, x_test=X_test):
+    def __init__(self, ratio=1.0, patience=11, verbose=2, x_test=X_test, y_test=y_test):
         self.x_test = x_test
+        self.y_test = y_test
         self.ratio = ratio
         self.patience = patience
         self.verbose = verbose
@@ -411,7 +399,9 @@ class CustomCallback(tf.keras.callbacks.Callback):
             if self.wait >= self.patience:
                 self.stopped_epoch = epoch
                 self.model.stop_training = True
-            elif current_val > current_train:
+            elif current_val >= current_train:
+                self.wait += 1
+            else:
                 self.wait += 1
         idx = np.random.randint(self.x_test.shape[0])
         _x = self.x_test[idx]
@@ -423,9 +413,9 @@ class CustomCallback(tf.keras.callbacks.Callback):
             sf.write(os.path.join(PATH_LOGS,str(epoch)+"_x.wav"), _x, 48000)
             sf.write(os.path.join(PATH_LOGS,str(epoch)+"_y.wav"), _x_gen, 48000)
 
-            self.make_plot(_y=_x, title=str(epoch)+"#x_test")
-            self.make_plot(_y=_x_gen, title=str(epoch)+"#predicted")
-            self.make_plot(_y=_delta, title=str(epoch)+"#x_test")
+            self.make_plot(_y=_x, title=str(epoch)+f"#x_test:{y_test[idx]}")
+            self.make_plot(_y=_x_gen, title=str(epoch)+f"#predicted:{y_test[idx]}")
+            self.make_plot(_y=_delta, title=str(epoch)+f"#x_test:{y_test[idx]}")
 
         elif DIM==2:
             _x_gen = self.model.predict(_x.reshape((-1, 240, 200, 1)))
@@ -439,18 +429,19 @@ class CustomCallback(tf.keras.callbacks.Callback):
             sf.write(os.path.join(PATH_LOGS,str(epoch)+"_d.wav"), \
                 _delta.reshape((SAMPLE_RATE, -1)), 48000)
 
-            self.make_image(_y=_x, title=str(epoch)+"#x_test(240x200)")
-            self.make_image(_y=_x_gen, title=str(epoch)+"#predicted(240x200)")
-            self.make_image(_y=_delta, title=str(epoch)+"#delta(240x200)")
-            self.make_plot(_y=_x, title=str(epoch)+"#x_test")
-            self.make_plot(_y=_x_gen, title=str(epoch)+"#predicted")
-            self.make_plot(_y=_delta, title=str(epoch)+"#x_test")
+            self.make_image(_y=_x, title=str(epoch)+f"#x_test(240x200):{y_test[idx]}")
+            self.make_image(_y=_x_gen, title=str(epoch)+f"#predicted(240x200):{y_test[idx]}")
+            self.make_image(_y=_delta, title=str(epoch)+f"#delta(240x200):{y_test[idx]}")
+            self.make_plot(_y=_x, title=str(epoch)+f"#x_test:{y_test[idx]}")
+            self.make_plot(_y=_x_gen, title=str(epoch)+f"#predicted:{y_test[idx]}")
+            self.make_plot(_y=_delta, title=str(epoch)+f"#x_test:{y_test[idx]}")
 
 
     def on_train_end(self, logs=None):
         if (self.stopped_epoch > 0) and (self.verbose > 0):
             print(f'Epoch {self.stopped_epoch:05d}: early stopping')
 
+cs_callback = CustomCallback(ratio=1.01, patience=11, verbose=2, x_test=X_test, y_test=y_test)
 
 tb_callback = tf.keras.callbacks.TensorBoard(
     log_dir=PATH_LOGS,
@@ -462,22 +453,28 @@ tb_callback = tf.keras.callbacks.TensorBoard(
     profile_batch=0,
     embeddings_freq=1,
     embeddings_metadata=None)
-reduceLR = tf.keras.callbacks.ReduceLROnPlateau(
+
+lr_callback = tf.keras.callbacks.ReduceLROnPlateau(
     monitor='val_loss',
     factor=.7,
     patience=7)
-cs_callback = CustomCallback(ratio=.9, patience=10, verbose=2, x_test=X_test)
 
+checkpoint_filepath = os.path.join(PATH_CKPT+r"\weights.{epoch:02d}-{val_loss:.2f}.h5")
+ckpt_callback = tf.keras.callbacks.ModelCheckpoint(
+    filepath=checkpoint_filepath,
+    monitor='val_loss',
+    mode='max',
+    save_best_only=True)
 
 model.fit(
     X_train, X_train,
     batch_size=20,
-    epochs=1000,
+    epochs=200,
     validation_split=.4,
     shuffle=True,
     verbose=2,
     use_multiprocessing=False,
-    callbacks=[tb_callback, cs_callback, reduceLR])
+    callbacks=[tb_callback, cs_callback, lr_callback, ckpt_callback])
 
 
 
